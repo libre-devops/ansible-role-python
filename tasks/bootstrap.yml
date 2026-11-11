@@ -33,6 +33,15 @@
     quiet: true
   when: __python_plan.install
 
+- name: Check this is not a check-mode run that would need to install Python
+  ansible.builtin.assert:
+    that: not ansible_check_mode
+    fail_msg: >-
+      {{ inventory_hostname }} has no Python {{ __python_plan.min_version }} or later yet, and in check mode the role
+      cannot install one. Run once without --check; check-mode runs work after that.
+    quiet: true
+  when: __python_plan.install
+
 - name: Install a Python from the host's repositories
   ansible.builtin.raw: "{{ lookup('ansible.builtin.template', 'bootstrap-install.sh.j2') }}"
   args:

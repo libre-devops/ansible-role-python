@@ -290,6 +290,7 @@ python_uv_config: |
 | Symptom | What to check |
 |---|---|
 | `The module interpreter '/usr/bin/python3' was not found`, on Gathering Facts | The play gathers facts before the role runs. Set `gather_facts: false` and put the role first. |
+| `in check mode the role cannot install one` | Installing Python is a change. Run once without `--check`; check-mode runs work after that. |
 | `has no Python 3.9 or later ... cannot install one here` | The distribution is not in `python_bootstrap_packages`, or the source is missing its files or archive. Add it, or set `python_bootstrap_interpreter`. |
 | `Installing python3.12 did not provide /usr/bin/python3.12` | The package exists but installs elsewhere. Set the `interpreter` in `python_bootstrap_packages`. |
 | `dnf` fails with nothing to install, or missing dependencies, for `files` | The files are for another release, or a dependency is missing. Download them on a machine that matches the hosts, or set `python_bootstrap_files_use_repos: true`. |

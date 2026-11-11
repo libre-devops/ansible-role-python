@@ -12,3 +12,7 @@ Notable changes to this role. The format follows [Keep a Changelog](https://keep
 - Virtual environments owned by the account that uses them, from packages or a requirements file, optionally exact, and removal.
 - Molecule scenarios on RHEL 8, 9 and Rocky 10, Debian 12 and 13, Ubuntu 24.04 and 26.04, and SLES 15 and 16, from minimal images with no Python added, and a scenario for pushed packages and archives.
 - `docs/using-without-galaxy.md`.
+
+### Changed
+
+- A check-mode run on a host that needs Python installed stops with a message saying so, instead of a missing interpreter.
