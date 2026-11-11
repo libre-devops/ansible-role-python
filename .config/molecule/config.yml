@@ -1,0 +1,57 @@
+---
+# Shared by every scenario under molecule/. The images carry no Python beyond what the
+# distribution's own minimal image has (none on Debian and Ubuntu, 3.6 on RHEL 8 and SLES 15),
+# because finding or installing one is the role's job. Pick one with: just test default rhel8
+# (the justfile adds the py- prefix, which keeps these containers apart from other roles' tests)
+driver:
+  name: podman
+
+platforms:
+  - name: py-rhel8
+    image: registry.access.redhat.com/ubi8/ubi:latest
+    dockerfile: ../../.config/molecule/Containerfile.j2
+    command: sleep infinity
+  - name: py-rhel9
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    dockerfile: ../../.config/molecule/Containerfile.j2
+    command: sleep infinity
+  - name: py-rocky10
+    image: docker.io/rockylinux/rockylinux:10-ubi
+    dockerfile: ../../.config/molecule/Containerfile.j2
+    command: sleep infinity
+  - name: py-debian12
+    image: docker.io/library/debian:12
+    dockerfile: ../../.config/molecule/Containerfile.j2
+    command: sleep infinity
+  - name: py-debian13
+    image: docker.io/library/debian:13
+    dockerfile: ../../.config/molecule/Containerfile.j2
+    command: sleep infinity
+  - name: py-ubuntu2404
+    image: docker.io/library/ubuntu:24.04
+    dockerfile: ../../.config/molecule/Containerfile.j2
+    command: sleep infinity
+  - name: py-ubuntu2604
+    image: docker.io/library/ubuntu:26.04
+    dockerfile: ../../.config/molecule/Containerfile.j2
+    command: sleep infinity
+  - name: py-sles15
+    image: registry.suse.com/bci/bci-base:15.7
+    dockerfile: ../../.config/molecule/Containerfile.j2
+    command: sleep infinity
+  - name: py-sles16
+    image: registry.suse.com/bci/bci-base:16.0
+    dockerfile: ../../.config/molecule/Containerfile.j2
+    command: sleep infinity
+
+provisioner:
+  name: ansible
+  config_options:
+    defaults:
+      callback_result_format: yaml
+      interpreter_python: auto_silent
+    ssh_connection:
+      pipelining: true
+
+verifier:
+  name: ansible

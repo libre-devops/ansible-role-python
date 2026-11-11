@@ -1,0 +1,74 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Choose the interpreter again, as the role does
+      ansible.builtin.include_role:
+        name: libre_devops.python
+        tasks_from: bootstrap
+
+    - name: Read uv's version
+      ansible.builtin.command: /usr/local/bin/uv --version
+      register: __verify_uv
+      changed_when: false
+
+    - name: Read uv's system configuration
+      ansible.builtin.slurp:
+        src: /etc/uv/uv.toml
+      register: __verify_uv_config
+
+    - name: List the Pythons uv installed
+      ansible.builtin.command: /usr/local/bin/uv python list --only-installed --output-format json
+      environment:
+        UV_PYTHON_INSTALL_DIR: /opt/uv/python
+      register: __verify_pythons
+      changed_when: false
+
+    # The module, not find(1): minimal images such as SLES 16's have no findutils.
+    - name: List every file in the demo venv
+      ansible.builtin.find:
+        paths: /opt/demo/venv
+        recurse: true
+        hidden: true
+        file_type: any
+      register: __verify_demo_files
+
+    - name: Import six in the demo venv
+      ansible.builtin.command: >-
+        /opt/demo/venv/bin/python -c 'import sys, six; print("%d.%d %s" % (sys.version_info[0], sys.version_info[1], six.__version__))'
+      environment:
+        # Root must not leave bytecode behind in app's venv.
+        PYTHONDONTWRITEBYTECODE: "1"
+      register: __verify_demo
+      changed_when: false
+
+    - name: List the tools venv
+      ansible.builtin.command: /usr/local/bin/uv pip list --python /opt/tools/venv/bin/python --format json
+      register: __verify_tools
+      changed_when: false
+
+    - name: Read the demo venv's parent
+      ansible.builtin.stat:
+        path: /opt/demo
+      register: __verify_demo_parent
+
+    - name: Look for the removed venv
+      ansible.builtin.stat:
+        path: /opt/old/venv
+      register: __verify_old
+
+    - name: Check everything
+      ansible.builtin.assert:
+        that:
+          - __verify_uv.stdout is match('uv 0\.13\.7 ')
+          - "'concurrent-downloads = 4' in __verify_uv_config.content | b64decode"
+          - __verify_pythons.stdout | from_json | map(attribute='version_parts') | map(attribute='minor') | list | intersect([12, 13]) | length == 2
+          - __verify_demo.stdout == '3.12 1.17.0'
+          - __verify_demo_files.files | length > 0
+          - __verify_demo_files.files | rejectattr('pw_name', 'eq', 'app') | list | length == 0
+          - __verify_demo_parent.stat.pw_name == 'root'
+          - __verify_tools.stdout | from_json | map(attribute='name') | sort == ['packaging', 'six']
+          - not __verify_old.stat.exists
+        quiet: true

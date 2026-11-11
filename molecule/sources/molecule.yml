@@ -1,0 +1,58 @@
+---
+# The other places a Python can come from. RHEL 8 bootstraps from package files pushed from the
+# control node with its repositories switched off, then adds Python 3.11 from its repositories.
+# Debian 12, with no Python at all, bootstraps from a python-build-standalone archive pushed from
+# the control node, then adds Python 3.13 the same way. Each makes a venv that names its added
+# version. Then a second run must change nothing.
+scenario:
+  test_sequence:
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+platforms:
+  - name: py-rhel8
+    image: registry.access.redhat.com/ubi8/ubi:latest
+    dockerfile: ../../.config/molecule/Containerfile.j2
+    command: sleep infinity
+  - name: py-debian12
+    image: docker.io/library/debian:12
+    dockerfile: ../../.config/molecule/Containerfile.j2
+    command: sleep infinity
+
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      py-rhel8:
+        python_bootstrap_source: files
+        # Downloaded by prepare.yml from the same image, so exactly what the host lacks.
+        python_bootstrap_files: "{{ query('ansible.builtin.fileglob', lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') ~ '/python-rpms/*.rpm') }}"
+        python_versions:
+          - version: "3.11"
+            source: repos
+        python_venvs:
+          - path: /opt/app/venv
+            python: "3.11"
+        __verify_interpreter: /usr/bin/python3.12
+        __verify_venv_version: "3.11"
+      py-debian12:
+        __pbs: https://github.com/astral-sh/python-build-standalone/releases/download/20261026
+        python_bootstrap_source: archive
+        python_bootstrap_archive: "{{ __pbs }}/cpython-3.12.16%2B20261026-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+        python_bootstrap_archive_checksum: sha256:ce4f6d0a6cfdb3bed6e44c2f9affd85943c76a42e25ad3a259002f31d6fb8a20
+        python_versions:
+          - version: "3.13.18"
+            source: archive
+            archive: "{{ __pbs }}/cpython-3.13.18%2B20261026-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+            checksum: sha256:df15fe60d3ff55bf9dcf25824b5572756bb8816ff93865a273d3301d7066a8b7
+        python_venvs:
+          - path: /opt/app/venv
+            python: "3.13.18"
+        __verify_interpreter: /opt/python/bootstrap/bin/python3
+        __verify_venv_version: "3.13"

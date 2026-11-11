@@ -1,0 +1,50 @@
+---
+# Pushes files from the control node to the host inside a shell script, and runs a command on
+# them there. ansible.builtin.script copies the script over the connection without needing
+# Python on the host, so this works before the bootstrap has found one. files/pack.py writes it.
+#
+# In: __python_push_label (a name for the script), __python_push_files (paths on the control
+# node) and __python_push_command (shell, run in the directory holding the files; its last line
+# of output is "python installed" when it changed something).
+
+- name: Note where the script goes on the control node
+  ansible.builtin.set_fact:
+    __python_push_script: >-
+      {{ python_controller_cache | expanduser }}/push-{{ inventory_hostname | regex_replace('[^A-Za-z0-9_.-]', '_') }}-{{
+         __python_push_label | regex_replace('[^A-Za-z0-9_.-]', '_') }}.sh
+
+- name: Check the files are on the control node
+  ansible.builtin.assert:
+    that:
+      - __python_push_files | length > 0
+      - __python_push_files | reject('file') | list | length == 0
+    fail_msg: >-
+      To push {{ __python_push_label }} to {{ inventory_hostname }}, these must be files on the control node:
+      {{ __python_push_files | reject('file') | list | join(', ') or '(none given)' }}.
+    quiet: true
+
+- name: Pack the files into a script on the control node
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  ansible.builtin.command:
+    argv: "{{ [ansible_playbook_python, role_path ~ '/files/pack.py', __python_push_script, __python_push_command] + __python_push_files }}"
+  changed_when: false
+
+- name: Run it on the host
+  ansible.builtin.script:
+    cmd: "{{ __python_push_script }}"
+    executable: /bin/sh
+  register: __python_push_result
+  changed_when: __python_push_result.stdout_lines | last | default('') == 'python installed'
+
+- name: Delete the script on the control node
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  ansible.builtin.file:
+    path: "{{ __python_push_script }}"
+    state: absent
+  changed_when: false

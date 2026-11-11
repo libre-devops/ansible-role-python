@@ -1,0 +1,101 @@
+---
+# uv from the host's repositories, or from its release archive, which the control node downloads
+# and checks once and copies to the hosts, so managed hosts need no access to GitHub or a mirror.
+
+- name: Install uv from the host's repositories
+  ansible.builtin.package:
+    name: "{{ python_uv_package }}"
+    state: present
+  when: python_uv_source == 'repos'
+
+- name: Install uv from its release archive
+  when: python_uv_source == 'download'
+  block:
+    - name: Check uv is available for this architecture
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['architecture'] in __python_uv_targets
+          - ansible_facts['architecture'] in python_uv_checksums
+        fail_msg: >-
+          uv {{ python_uv_version }} has no build the role knows for {{ ansible_facts['architecture'] }} on
+          {{ inventory_hostname }}. Add its SHA-256 to python_uv_checksums.
+        quiet: true
+
+    # Once for the whole play, for each architecture among its hosts.
+    - name: Download and unpack uv on the control node
+      delegate_to: localhost
+      become: false
+      run_once: true
+      vars:
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+        __python_uv_cache: "{{ python_controller_cache | expanduser }}/uv-{{ python_uv_version }}"
+        __python_uv_arches: >-
+          {{ ansible_play_hosts | map('extract', hostvars, ['ansible_facts', 'architecture']) | select('defined') | unique | list }}
+      block:
+        - name: Create the download directory on the control node
+          ansible.builtin.file:
+            path: "{{ __python_uv_cache }}"
+            state: directory
+            mode: "0755"
+
+        - name: Download uv
+          ansible.builtin.get_url:
+            url: "{{ python_uv_download_base_url }}/{{ python_uv_version }}/uv-{{ __python_uv_targets[item] }}.tar.gz"
+            dest: "{{ __python_uv_cache }}/uv-{{ __python_uv_targets[item] }}.tar.gz"
+            checksum: "sha256:{{ python_uv_checksums[item] }}"
+            mode: "0644"
+          loop: "{{ __python_uv_arches }}"
+
+        - name: Unpack uv
+          ansible.builtin.unarchive:
+            src: "{{ __python_uv_cache }}/uv-{{ __python_uv_targets[item] }}.tar.gz"
+            dest: "{{ __python_uv_cache }}"
+            remote_src: true
+            creates: "{{ __python_uv_cache }}/uv-{{ __python_uv_targets[item] }}/uv"
+          loop: "{{ __python_uv_arches }}"
+
+    - name: Install uv and uvx
+      ansible.builtin.copy:
+        src: >-
+          {{ python_controller_cache | expanduser }}/uv-{{ python_uv_version }}/uv-{{
+             __python_uv_targets[ansible_facts['architecture']] }}/{{ item }}
+        dest: "{{ python_uv_bin_dir }}/{{ item }}"
+        owner: root
+        group: root
+        mode: "0755"
+      loop: [uv, uvx]
+
+# Made before anything below it, so it gets 0755 rather than the 0700 of the per-user caches.
+- name: Create uv's cache directory
+  ansible.builtin.file:
+    path: "{{ python_uv_cache_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create root's uv cache
+  ansible.builtin.file:
+    path: "{{ python_uv_cache_dir }}/root"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Create the directory for uv's system configuration
+  ansible.builtin.file:
+    path: /etc/uv
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: python_uv_config | length > 0
+
+- name: Write uv's system configuration
+  ansible.builtin.copy:
+    content: "{{ python_uv_config }}"
+    dest: /etc/uv/uv.toml
+    owner: root
+    group: root
+    mode: "0644"
+  when: python_uv_config | length > 0

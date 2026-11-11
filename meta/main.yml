@@ -1,0 +1,36 @@
+---
+galaxy_info:
+  namespace: libre_devops
+  role_name: python
+  author: Craig Thacker
+  company: Libre DevOps
+  description: >-
+    Give hosts a Python that current ansible-core can use, even RHEL 8 and SLES 15, then
+    install uv, Python versions and virtual environments
+  license: MIT
+  min_ansible_version: "2.16"
+  issue_tracker_url: https://github.com/libre-devops/ansible-role-python/issues
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+        - "10"
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+    - name: Ubuntu
+      versions:
+        - noble
+    - name: SLES
+      versions:
+        - "15"
+  galaxy_tags:
+    - python
+    - uv
+    - virtualenv
+    - venv
+    - bootstrap
+
+dependencies: []

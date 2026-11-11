@@ -1,0 +1,14 @@
+#!/bin/sh
+# Run through raw before the host has a usable Python: reports the distribution and each
+# candidate interpreter with its version, one key=value per line.
+. /etc/os-release 2>/dev/null || true
+echo "os_id=${ID:-unknown}"
+echo "os_like=${ID_LIKE:-}"
+echo "os_version=${VERSION_ID:-}"
+for python in {{ __python_bootstrap_candidates | map('quote') | join(' ') }}; do
+  if [ -x "$python" ]; then
+    version=$("$python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null) \
+      && echo "python=$python $version"
+  fi
+done
+exit 0

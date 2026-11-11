@@ -1,0 +1,100 @@
+---
+# Internal values. Not meant to be overridden.
+
+# The oldest Python each ansible-core release can run modules with on managed nodes.
+__python_min_version_auto: >-
+  {{ '3.9' if ansible_version.full is version('2.20', '>=')
+     else '3.8' if ansible_version.full is version('2.18', '>=')
+     else '3.7' if ansible_version.full is version('2.17', '>=')
+     else '3.6' }}
+__python_min_version: >-
+  {{ __python_min_version_auto if python_bootstrap_min_version | string == 'auto'
+     else python_bootstrap_min_version | string }}
+
+# The interpreter an archive bootstrap provides.
+__python_bootstrap_archive_interpreter: "{{ python_bootstrap_archive_dir }}/bin/python3"
+
+# Interpreters the bootstrap looks for, newest first after the distribution's own python3.
+__python_bootstrap_candidates: >-
+  {{ (['/usr/bin/python3']
+      + ['3.14', '3.13', '3.12', '3.11', '3.10', '3.9'] | map('regex_replace', '^', '/usr/bin/python') | list
+      + ['/usr/libexec/platform-python']
+      + (python_bootstrap_packages.values() | map(attribute='interpreter') | list)
+      + [__python_bootstrap_archive_interpreter]
+      + ([python_bootstrap_interpreter] if python_bootstrap_interpreter | length > 0 else []))
+     | unique }}
+
+# How each distribution family installs a package from its repositories (repos).
+__python_install_commands:
+  rhel: dnf -y install
+  fedora: dnf -y install
+  suse: zypper --non-interactive install --no-recommends
+  debian: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
+
+# How each family installs package files in the current directory (files), with and without
+# its repositories for missing dependencies.
+__python_install_files_commands:
+  rhel:
+    repos: dnf -y install ./*.rpm
+    offline: dnf -y install --disablerepo='*' ./*.rpm
+  fedora:
+    repos: dnf -y install ./*.rpm
+    offline: dnf -y install --disablerepo='*' ./*.rpm
+  suse:
+    repos: zypper --non-interactive install --no-recommends ./*.rpm
+    offline: zypper --non-interactive --no-refresh install --no-recommends ./*.rpm
+  debian:
+    repos: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ./*.deb
+    offline: dpkg -i ./*.deb
+
+# Ansible's os_family to the role's family names, once facts are gathered.
+__python_families:
+  RedHat: rhel
+  Suse: suse
+  Debian: debian
+
+# uv's target name for each architecture Ansible reports.
+__python_uv_targets:
+  x86_64: x86_64-unknown-linux-gnu
+  aarch64: aarch64-unknown-linux-gnu
+
+# Where uv is on the hosts.
+__python_uv: "{{ '/usr/bin/uv' if python_uv_source == 'repos' else python_uv_bin_dir ~ '/uv' }}"
+
+# uv's environment for every command the role runs: Pythons installed by the role, and no
+# downloads except where python_versions asks for one.
+__python_uv_environment:
+  UV_PYTHON_INSTALL_DIR: "{{ python_versions_dir }}"
+  UV_PYTHON_DOWNLOADS: never
+
+# python_versions with every field filled in, as a list of dicts. Built as JSON, which every
+# supported ansible-core turns back into the same list.
+__python_versions_json: >-
+  {%- set ns = namespace(out=[]) -%}
+  {%- for item in python_versions -%}
+    {%- set entry = {'version': item | string} if item is string or item is number else item -%}
+    {%- set short = (entry.version | string).split('.')[:2] | join('.') -%}
+    {%- set source = entry.source | default(python_versions_source) -%}
+    {%- set dest = entry.dest | default(python_versions_archive_dir ~ '/' ~ entry.version) -%}
+    {%- set name_pattern = python_versions_package_names.get(ansible_facts.get('os_family', ''), 'python{version}') -%}
+    {%- set ns.out = ns.out + [{
+        'version': entry.version | string,
+        'source': source,
+        'package': entry.package | default(name_pattern | replace('{version}', short) | replace('{nodot}', short | replace('.', ''))),
+        'files': entry.files | default([]),
+        'use_repos': entry.use_repos | default(false),
+        'archive': entry.archive | default(''),
+        'checksum': entry.checksum | default(''),
+        'dest': dest,
+        'interpreter': entry.interpreter | default(dest ~ '/bin/python3' if source == 'archive'
+                                                  else '' if source == 'uv' else '/usr/bin/python' ~ short),
+      }] -%}
+  {%- endfor -%}
+  {{ ns.out | to_json }}
+__python_versions: "{{ __python_versions_json | from_json }}"
+
+# uv is needed for uv's Pythons and for any venv that should exist.
+__python_uv_needed: >-
+  {{ python_uv_install | bool
+     or 'uv' in (__python_versions | map(attribute='source') | list)
+     or 'present' in (python_venvs | map(attribute='state', default='present') | list) }}

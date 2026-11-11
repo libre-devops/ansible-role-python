@@ -1,0 +1,26 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Choose the interpreter again, as the role does
+      ansible.builtin.include_role:
+        name: libre_devops.python
+        tasks_from: bootstrap
+
+    - name: Read the venv's Python version
+      ansible.builtin.command: /opt/app/venv/bin/python -c 'import sys; print("%d.%d" % sys.version_info[:2])'
+      register: __verify_venv
+      changed_when: false
+
+    - name: Check the interpreter and the venv
+      ansible.builtin.assert:
+        that:
+          - ansible_python_interpreter == __verify_interpreter
+          - ansible_facts['python']['executable'] == __verify_interpreter
+          - __verify_venv.stdout == __verify_venv_version
+        fail_msg: >-
+          Interpreter {{ ansible_python_interpreter }} (expected {{ __verify_interpreter }}),
+          venv Python {{ __verify_venv.stdout }} (expected {{ __verify_venv_version }}).
+        success_msg: "{{ ansible_python_interpreter }}, venv on Python {{ __verify_venv.stdout }}"

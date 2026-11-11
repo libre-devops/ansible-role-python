@@ -1,0 +1,23 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    python_versions: ["3.12", "3.13"]
+    python_uv_config: |
+      # Written by Molecule.
+      concurrent-downloads = 4
+    python_venvs:
+      - path: /opt/demo/venv
+        python: "3.12"
+        packages: [six==1.17.0]
+        owner: app
+      - path: /opt/tools/venv
+        python: "3.13"
+        requirements: "{{ playbook_dir }}/requirements.txt"
+        exact: true
+      - path: /opt/old/venv
+        state: absent
+  roles:
+    - role: libre_devops.python

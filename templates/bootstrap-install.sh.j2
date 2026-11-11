@@ -1,0 +1,15 @@
+#!/bin/sh
+# Run through raw: installs {{ __python_plan.package }} unless {{ __python_plan.chosen }} is
+# already there. The last line of output says which happened.
+set -e
+if [ -x {{ __python_plan.chosen | quote }} ]; then
+  echo "python present"
+  exit 0
+fi
+export LANG=C
+{{ __python_install_commands[__python_plan.family] }} {{ __python_plan.package | quote }}
+if [ ! -x {{ __python_plan.chosen | quote }} ]; then
+  echo "Installing {{ __python_plan.package }} did not provide {{ __python_plan.chosen }}." >&2
+  exit 1
+fi
+echo "python installed"

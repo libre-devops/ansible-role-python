@@ -1,0 +1,124 @@
+---
+# Runs before the host has a Python ansible-core can use, so the only tasks that touch the host
+# are raw and script ones. The others (set_fact, assert) run on the control node. The approach, raw
+# commands chosen from /etc/os-release before any module runs, follows robertdebock.bootstrap.
+
+- name: Find the distribution and its Pythons
+  ansible.builtin.raw: "{{ lookup('ansible.builtin.template', 'bootstrap-probe.sh.j2') }}"
+  args:
+    executable: /bin/sh
+  register: __python_probe
+  changed_when: false
+  check_mode: false
+
+- name: Choose the interpreter
+  ansible.builtin.set_fact:
+    __python_plan: "{{ lookup('ansible.builtin.template', 'bootstrap-plan.json.j2') | from_json }}"
+
+- name: Check a Python can be installed here
+  ansible.builtin.assert:
+    that:
+      - python_bootstrap_source in ['repos', 'files', 'archive']
+      - __python_plan.chosen | length > 0
+      - python_bootstrap_source == 'archive' or __python_plan.family in __python_install_commands
+      - python_bootstrap_source != 'repos' or __python_plan.package | length > 0
+      - python_bootstrap_source != 'files' or python_bootstrap_files | length > 0
+      - python_bootstrap_source != 'archive' or python_bootstrap_archive | length > 0
+    fail_msg: >-
+      {{ inventory_hostname }} ({{ __python_plan.os_id }} {{ __python_plan.os_version }}) has no Python
+      {{ __python_plan.min_version }} or later (found: {{ __python_plan.found | map(attribute='path') | join(', ') or 'none' }}),
+      and python_bootstrap_source {{ python_bootstrap_source }} cannot install one here. For repos and files, the
+      distribution must be in python_bootstrap_packages; files needs python_bootstrap_files and archive needs
+      python_bootstrap_archive. Or install a Python yourself and set python_bootstrap_interpreter.
+    quiet: true
+  when: __python_plan.install
+
+- name: Install a Python from the host's repositories
+  ansible.builtin.raw: "{{ lookup('ansible.builtin.template', 'bootstrap-install.sh.j2') }}"
+  args:
+    executable: /bin/sh
+  register: __python_install
+  changed_when: __python_install.stdout_lines | last | default('') == 'python installed'
+  when:
+    - __python_plan.install
+    - python_bootstrap_source == 'repos'
+
+- name: Create the download directory on the control node
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  ansible.builtin.file:
+    path: "{{ python_controller_cache | expanduser }}"
+    state: directory
+    mode: "0755"
+  when:
+    - __python_plan.install
+    - python_bootstrap_source == 'archive'
+    - python_bootstrap_archive is match('^https?://')
+
+- name: Download the Python archive on the control node
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  ansible.builtin.get_url:
+    url: "{{ python_bootstrap_archive }}"
+    dest: "{{ python_controller_cache | expanduser }}/{{ python_bootstrap_archive | basename }}"
+    checksum: "{{ python_bootstrap_archive_checksum or omit }}"
+    mode: "0644"
+  when:
+    - __python_plan.install
+    - python_bootstrap_source == 'archive'
+    - python_bootstrap_archive is match('^https?://')
+
+- name: Push a Python from the control node and install it
+  ansible.builtin.include_tasks: push.yml
+  vars:
+    __python_push_label: bootstrap
+    __python_push_mode: "{{ python_bootstrap_source }}"
+    __python_push_interpreter: "{{ __python_plan.chosen }}"
+    __python_push_family: "{{ __python_plan.family }}"
+    __python_push_use_repos: "{{ python_bootstrap_files_use_repos }}"
+    __python_push_archive: "{{ python_bootstrap_archive | basename }}"
+    __python_push_dest: "{{ python_bootstrap_archive_dir }}"
+    __python_push_files: >-
+      {{ (python_bootstrap_files | map('expanduser') | list) if python_bootstrap_source == 'files'
+         else [python_controller_cache | expanduser ~ '/' ~ (python_bootstrap_archive | basename)]
+              if python_bootstrap_archive is match('^https?://')
+         else [python_bootstrap_archive | expanduser] }}
+    __python_push_command: "{{ lookup('ansible.builtin.template', 'push-install.sh.j2') }}"
+  when:
+    - __python_plan.install
+    - python_bootstrap_source in ['files', 'archive']
+
+- name: Read the chosen interpreter's version
+  ansible.builtin.raw: >-
+    {{ __python_plan.chosen | quote }} -c 'import sys; print("%d.%d" % sys.version_info[:2])'
+  args:
+    executable: /bin/sh
+  register: __python_chosen_version
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Check ansible-core can use it
+  ansible.builtin.assert:
+    that:
+      - __python_chosen_version.rc == 0
+      - __python_chosen_version.stdout | trim is version(__python_plan.min_version, '>=')
+    fail_msg: >-
+      {{ __python_plan.chosen }} on {{ inventory_hostname }} is
+      {{ ('Python ' ~ (__python_chosen_version.stdout | trim)) if __python_chosen_version.rc == 0 else 'not there' }},
+      and this ansible-core ({{ ansible_version.full }}) needs Python {{ __python_plan.min_version }} or later on
+      managed nodes. Set python_bootstrap_interpreter to a newer one, or python_bootstrap_packages to a package that
+      provides it.
+    quiet: true
+
+- name: Use it for every task after this one
+  ansible.builtin.set_fact:
+    ansible_python_interpreter: "{{ __python_plan.chosen }}"
+
+- name: Gather facts
+  ansible.builtin.setup:
+  when: python_bootstrap_gather_facts | bool

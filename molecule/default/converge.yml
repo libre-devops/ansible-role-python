@@ -1,0 +1,8 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  # Gathering facts is a module, so it would fail before the role could install a Python.
+  gather_facts: false
+  roles:
+    - role: libre_devops.python

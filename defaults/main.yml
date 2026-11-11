@@ -1,0 +1,158 @@
+---
+# Bootstrap: give each host a Python that the control node's ansible-core can run modules
+# with, and point ansible_python_interpreter at it. It uses raw and script only, so it works on
+# hosts with no Python or only an old one, such as RHEL 8 with Python 3.6. Put the role first in
+# a play with gather_facts: false, because gathering facts is itself a module and fails first.
+python_bootstrap: true
+
+# The oldest Python ansible-core accepts on managed nodes. auto works it out from the running
+# ansible-core: 3.9 from 2.20, 3.8 for 2.18 and 2.19, 3.7 for 2.17, 3.6 before that. Set a
+# version such as "3.11" to ask for more, or when a later ansible-core raises the minimum.
+python_bootstrap_min_version: auto
+
+# Use this interpreter rather than letting the role choose, and install it from
+# python_bootstrap_source if it is missing. Empty: the interpreter the source provides when it is
+# there and new enough, else /usr/bin/python3, else the newest Python found, else install one.
+python_bootstrap_interpreter: ""
+
+# Where the bootstrap gets a Python when the host has none new enough:
+#   repos    the package python_bootstrap_packages names, from the host's own repositories: the
+#            distribution's, a Red Hat Satellite or SUSE Manager, or a mirror.
+#   files    package files from the control node (python_bootstrap_files), pushed to the host and
+#            installed with its package manager. For hosts with no repositories.
+#   archive  a self-contained build of Python (python_bootstrap_archive), pushed from the control
+#            node and unpacked into python_bootstrap_archive_dir. Any distribution, no packages.
+# files and archive work before the host has a usable Python: the role wraps the files in a shell
+# script that needs only sh and base64 on the host (and tar, for an archive).
+python_bootstrap_source: repos
+
+# repos and files: the package to install, and the interpreter it provides, by distribution
+# family and major version (such as rhel8), then by family (rhel, fedora, suse, debian).
+python_bootstrap_packages:
+  rhel8:
+    package: python3.12
+    interpreter: /usr/bin/python3.12
+  rhel:
+    package: python3
+    interpreter: /usr/bin/python3
+  fedora:
+    package: python3
+    interpreter: /usr/bin/python3
+  suse15:
+    package: python311
+    interpreter: /usr/bin/python3.11
+  suse:
+    package: python3
+    interpreter: /usr/bin/python3
+  debian:
+    package: python3
+    interpreter: /usr/bin/python3
+
+# files: the package files, on the control node: the Python package and every dependency the
+# host lacks. On a machine with repositories that matches the hosts, for RHEL 8:
+#   dnf install --downloadonly --downloaddir=python-rpms python3.12
+python_bootstrap_files: []
+
+# files: let the package manager fetch dependencies missing from python_bootstrap_files from the
+# host's repositories. false installs from the files alone.
+python_bootstrap_files_use_repos: false
+
+# archive: a python-build-standalone "install_only" archive (.tar.gz) on the control node, or an
+# https URL the control node downloads it from. The control node checks it against
+# python_bootstrap_archive_checksum (such as sha256:<hex>) when that is set.
+python_bootstrap_archive: ""
+python_bootstrap_archive_checksum: ""
+
+# archive: where it is unpacked. The interpreter is <dir>/bin/python3.
+python_bootstrap_archive_dir: /opt/python/bootstrap
+
+# Gather facts once the interpreter is set, so the tasks and roles after this one have them
+# even though the play has gather_facts: false.
+python_bootstrap_gather_facts: true
+
+# uv: installed when this is true, or when python_versions or python_venvs ask for it.
+python_uv_install: false
+
+# Where uv comes from:
+#   download  the release archive, which the control node downloads from
+#             python_uv_download_base_url, checks against python_uv_checksums and copies to the
+#             hosts. Managed hosts never download it themselves.
+#   repos     the python_uv_package package from the host's own repositories, where they have
+#             one (Fedora, EPEL, openSUSE and others).
+python_uv_source: download
+python_uv_package: uv
+
+# download: the uv release, and the SHA-256 of its archive for each architecture, from the
+# release's .sha256 files. Change all three together.
+python_uv_version: "0.13.7"
+python_uv_checksums:
+  x86_64: c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
+  aarch64: 71279f8d3c67241e807b9d8db872d1bf541579fb9f08b7d1eb1682196d1e57dc
+
+# download: <base>/<version>/uv-<arch>-unknown-linux-gnu.tar.gz. Point it at a mirror of
+# GitHub's releases, such as an Artifactory remote, or at a directory on the control node with
+# the same layout (file:///srv/uv), to keep the download inside your network.
+python_uv_download_base_url: https://github.com/astral-sh/uv/releases/download
+
+# download: where the control node keeps downloaded and packed files between runs.
+python_controller_cache: ~/.cache/libre_devops.python
+
+# download: where uv and uvx go on each host. (repos: wherever the package puts them, normally
+# /usr/bin.)
+python_uv_bin_dir: /usr/local/bin
+
+# uv's cache on each host. Each venv owner gets a directory of their own below it.
+python_uv_cache_dir: /var/cache/uv
+
+# Written to /etc/uv/uv.toml when not empty, which uv reads for every user on the host: package
+# indexes, a Python download mirror (python-install-mirror), native-tls for an internal CA and
+# so on. See https://docs.astral.sh/uv/reference/settings/.
+python_uv_config: ""
+
+# Python versions to install, each a version string or a dict:
+#   version:      such as "3.12" or "3.13.9" (required).
+#   source:       uv (the default, python_versions_source), repos, files or archive.
+#     uv          Astral's python-build-standalone builds, through uv, from GitHub or the
+#                 python-install-mirror in python_uv_config.
+#     repos       a package from the host's own repositories (distribution, Satellite, mirror).
+#                 package: its name (default from python_versions_package_names).
+#     files       package files from the control node. files: the list, use_repos: as for the
+#                 bootstrap.
+#     archive     a python-build-standalone install_only archive from the control node or a URL.
+#                 archive: the file or URL, checksum: such as sha256:<hex>, dest: where to unpack
+#                 it (default <python_versions_archive_dir>/<version>).
+#   interpreter:  its path, when the default for the source is wrong.
+# After this runs, python_interpreters maps each version to its interpreter, and a venv's python
+# can name a version from this list.
+python_versions: []
+python_versions_source: uv
+
+# uv: where it installs Pythons. Root owns it, and every user can read it.
+python_versions_dir: /opt/uv/python
+
+# uv: also put pythonX.Y commands in this directory, such as /usr/local/bin. Empty: none, so the
+# distribution's own python3 commands stay first on PATH.
+python_versions_link_dir: ""
+
+# repos: the package name for a version, by Ansible's os_family. {version} is the major and
+# minor version (3.12), {nodot} the same without the dot (312).
+python_versions_package_names:
+  RedHat: python{version}
+  Suse: python{nodot}
+  Debian: python{version}
+
+# archive: the default parent directory for unpacked archives.
+python_versions_archive_dir: /opt/python
+
+# Virtual environments, each one a dict:
+#   path:          where it lives (required).
+#   python:        a version from python_versions, a version uv can find (such as "3.12"), or
+#                  a path to an interpreter. Empty: uv's choice. When the major or minor
+#                  version changes, the venv is made again.
+#   packages:      requirement strings to install, such as ["requests==2.32.5"].
+#   requirements:  a requirements file on the control node, copied to <path>/requirements.txt.
+#   exact:         true makes the venv hold exactly what the requirements file lists.
+#   owner, group:  who owns it and runs uv for it (default root).
+#   mode:          the mode of <path> (default "0755").
+#   state:         present (default) or absent.
+python_venvs: []

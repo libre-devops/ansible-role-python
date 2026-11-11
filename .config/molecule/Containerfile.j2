@@ -1,0 +1,21 @@
+# Test image for every platform: the distribution's minimal image plus sudo, so the tests use
+# become the same way a real run does. No Python is added: finding or installing one is what
+# the role is for. On GitHub's runners sudo's PAM account check fails in the UBI images, so the
+# test images skip it (Defaults !pam_acct_mgmt).
+FROM {{ item.image }}
+
+{% if 'ubi' in item.image %}
+RUN dnf -y install sudo \
+    && dnf clean all \
+    && echo 'Defaults !pam_acct_mgmt' > /etc/sudoers.d/molecule \
+    && chmod 0440 /etc/sudoers.d/molecule
+{% elif 'debian' in item.image or 'ubuntu' in item.image %}
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends sudo \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+{% elif 'suse' in item.image %}
+RUN zypper --non-interactive install --no-recommends sudo \
+    && zypper clean --all
+{% endif %}

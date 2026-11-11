@@ -1,0 +1,50 @@
+{#- Chooses the interpreter from what bootstrap-probe.sh found, as JSON for tasks/bootstrap.yml. -#}
+{%- set ns = namespace(os={}, found=[], family='unknown') -%}
+{%- for line in __python_probe.stdout_lines -%}
+  {%- if line is match('^os_[a-z]+=') -%}
+    {%- set ns.os = ns.os | combine({line.split('=', 1)[0][3:]: line.split('=', 1)[1] | trim}) -%}
+  {%- elif line is match('^python=\S+ \S+') -%}
+    {%- set ns.found = ns.found + [{'path': line[7:].split(' ')[0], 'version': line[7:].split(' ')[1] | trim}] -%}
+  {%- endif -%}
+{%- endfor -%}
+{%- set os_id = ns.os.get('id', 'unknown') -%}
+{%- set ids = [os_id] + ns.os.get('like', '').split() -%}
+{%- if os_id == 'fedora' -%}
+  {%- set ns.family = 'fedora' -%}
+{%- elif ids | intersect(['rhel', 'centos', 'fedora']) | length > 0 -%}
+  {%- set ns.family = 'rhel' -%}
+{%- elif ids | intersect(['suse', 'sles', 'opensuse']) | length > 0 or os_id is match('^(sles|sled|opensuse)') -%}
+  {%- set ns.family = 'suse' -%}
+{%- elif ids | intersect(['debian', 'ubuntu']) | length > 0 -%}
+  {%- set ns.family = 'debian' -%}
+{%- endif -%}
+{%- set major = ns.os.get('version', '').split('.')[0] -%}
+{%- set package = python_bootstrap_packages.get(ns.family ~ major, python_bootstrap_packages.get(ns.family, {})) -%}
+{%- set usable = ns.found | selectattr('version', 'version', __python_min_version, '>=') | map(attribute='path') | list -%}
+{#- The interpreter python_bootstrap_source provides. -#}
+{%- set provided = __python_bootstrap_archive_interpreter if python_bootstrap_source == 'archive' else package.get('interpreter', '') -%}
+{%- if python_bootstrap_interpreter | length > 0 -%}
+  {%- set chosen = python_bootstrap_interpreter -%}
+  {%- set install = chosen not in (ns.found | map(attribute='path') | list) -%}
+{%- elif provided in usable -%}
+  {#- The same one every run, even when alternatives move /usr/bin/python3 to it. -#}
+  {%- set chosen = provided -%}
+  {%- set install = false -%}
+{%- elif usable | length > 0 -%}
+  {%- set chosen = usable[0] -%}
+  {%- set install = false -%}
+{%- else -%}
+  {%- set chosen = provided -%}
+  {%- set install = true -%}
+{%- endif -%}
+{{ {
+  'os_id': os_id,
+  'os_version': ns.os.get('version', ''),
+  'family': ns.family,
+  'found': ns.found,
+  'min_version': __python_min_version,
+  'chosen': chosen,
+  'install': install,
+  'package': package.get('package', ''),
+  'source': python_bootstrap_source,
+} | to_json }}

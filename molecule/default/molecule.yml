@@ -1,0 +1,13 @@
+---
+# The bootstrap on its own: each platform starts with no Python ansible-core can use (none on
+# Debian and Ubuntu, 3.6 on RHEL 8 and SLES 15), so the role must find or install one, and then
+# a second run must change nothing.
+scenario:
+  test_sequence:
+    - destroy
+    - syntax
+    - create
+    - converge
+    - idempotence
+    - verify
+    - destroy

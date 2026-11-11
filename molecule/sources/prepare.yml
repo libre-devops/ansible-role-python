@@ -1,0 +1,30 @@
+---
+# Raw only: the hosts have no Python ansible-core can use until the role runs.
+- name: Prepare
+  hosts: py-rhel8
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Download Python 3.12 and what it needs, without installing them
+      ansible.builtin.raw: >-
+        rm -rf /tmp/python-rpms &&
+        dnf install -y --downloadonly --downloaddir=/tmp/python-rpms python3.12 >/dev/null &&
+        ls /tmp/python-rpms
+      args:
+        executable: /bin/sh
+      changed_when: true
+
+    - name: Copy them to the control node, as an operator would bring them in
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      ansible.builtin.command:
+        argv: [podman, cp, "{{ inventory_hostname }}:/tmp/python-rpms", "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/"]
+      changed_when: true
+
+    - name: Remove them from the host
+      ansible.builtin.raw: rm -rf /tmp/python-rpms
+      args:
+        executable: /bin/sh
+      changed_when: true

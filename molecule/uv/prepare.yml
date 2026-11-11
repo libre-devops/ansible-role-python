@@ -1,0 +1,12 @@
+---
+# Raw only: the hosts have no Python ansible-core can use until the role runs.
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Create the venv owner and a venv for the role to remove
+      ansible.builtin.raw: (id app >/dev/null 2>&1 || useradd --create-home app) && mkdir -p /opt/old/venv
+      args:
+        executable: /bin/sh
+      changed_when: true

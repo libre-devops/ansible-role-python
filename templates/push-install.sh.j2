@@ -1,0 +1,21 @@
+{#- The command a pushed script runs on the host, in the directory holding the pushed files.
+    In: __python_push_mode (files or archive), __python_push_interpreter, and for files
+    __python_push_family and __python_push_use_repos, for an archive __python_push_archive
+    (its file name) and __python_push_dest. -#}
+export LANG=C
+if [ -x {{ __python_push_interpreter | quote }} ]; then
+  echo "python present"
+  exit 0
+fi
+{% if __python_push_mode == 'files' %}
+{{ __python_install_files_commands[__python_push_family]['repos' if __python_push_use_repos | bool else 'offline'] }}
+{% else %}
+command -v tar >/dev/null || { echo "Unpacking a Python archive needs tar on the host." >&2; exit 1; }
+mkdir -p {{ __python_push_dest | quote }}
+tar -xzf {{ __python_push_archive | quote }} -C {{ __python_push_dest | quote }} --strip-components=1
+{% endif %}
+if [ ! -x {{ __python_push_interpreter | quote }} ]; then
+  echo "Installing from the pushed files did not provide {{ __python_push_interpreter }}." >&2
+  exit 1
+fi
+echo "python installed"

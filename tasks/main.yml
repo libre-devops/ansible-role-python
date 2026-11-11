@@ -1,0 +1,36 @@
+---
+- name: Give the host a Python ansible-core can use
+  ansible.builtin.include_tasks: bootstrap.yml
+  when: python_bootstrap | bool
+
+- name: Gather the facts the role needs
+  ansible.builtin.setup:
+    gather_subset: [min]
+  when:
+    - __python_uv_needed | bool or python_versions | length > 0
+    - ansible_facts['architecture'] is not defined or ansible_facts['os_family'] is not defined
+
+- name: Install uv
+  ansible.builtin.include_tasks: uv.yml
+  when: __python_uv_needed | bool
+
+- name: Install the Python versions
+  ansible.builtin.include_tasks: versions.yml
+  when: python_versions | length > 0
+
+# runuser where the host has it (util-linux), else sudo: minimal images such as SLES 16's have
+# no runuser.
+- name: Find a command to run uv as a venv's owner  # noqa: command-instead-of-shell - command -v is a shell builtin
+  ansible.builtin.shell: command -v runuser || command -v sudo
+  register: __python_switch_user
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  when: python_venvs | map(attribute='owner', default='root') | reject('eq', 'root') | list | length > 0
+
+- name: Manage the virtual environments
+  ansible.builtin.include_tasks: venv.yml
+  loop: "{{ python_venvs }}"
+  loop_control:
+    loop_var: __python_venv
+    label: "{{ __python_venv.path | default('(no path)') }}"

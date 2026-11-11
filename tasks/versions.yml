@@ -1,0 +1,132 @@
+---
+# python_versions, by source. Each source records its interpreters in python_interpreters at
+# the end, so venvs (and later roles) can use them by version.
+
+- name: Check the Python versions
+  ansible.builtin.assert:
+    that:
+      - item.version is match('^[0-9]+(\.[0-9]+)*$')
+      - item.source in ['uv', 'repos', 'files', 'archive']
+      - item.source != 'files' or item.files | length > 0
+      - item.source != 'archive' or item.archive | length > 0
+    fail_msg: >-
+      python_versions entry {{ item.version }}: the version must look like 3.12 or 3.13.9 (quote it in YAML,
+      or 3.10 becomes 3.1), the source must be uv, repos, files or archive, files needs files, and archive
+      needs archive.
+    quiet: true
+  loop: "{{ __python_versions }}"
+  loop_control:
+    label: "{{ item.version }}"
+
+- name: Install the uv Pythons
+  when: __python_versions | selectattr('source', 'eq', 'uv') | list | length > 0
+  vars:
+    __python_uv_versions: "{{ __python_versions | selectattr('source', 'eq', 'uv') | map(attribute='version') | list }}"
+  block:
+    - name: Create the directory for uv's Pythons
+      ansible.builtin.file:
+        path: "{{ python_versions_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # uv says "Installed Python ..." when it installs one, and "... is already installed" when not.
+    - name: Install the Pythons with uv
+      ansible.builtin.command:
+        argv: >-
+          {{ [__python_uv, 'python', 'install', '--install-dir', python_versions_dir]
+             + ([] if python_versions_link_dir | length > 0 else ['--no-bin'])
+             + __python_uv_versions }}
+      environment: >-
+        {{ {'UV_CACHE_DIR': python_uv_cache_dir ~ '/root'}
+           | combine({'UV_PYTHON_BIN_DIR': python_versions_link_dir} if python_versions_link_dir | length > 0 else {}) }}
+      register: __python_versions_install
+      changed_when: __python_versions_install.stderr is search('(?m)^Installed ')
+
+    - name: Find the uv Pythons' interpreters
+      ansible.builtin.command:
+        argv: ["{{ __python_uv }}", python, find, --managed-python, "{{ item }}"]
+      environment: "{{ __python_uv_environment }}"
+      register: __python_uv_found
+      changed_when: false
+      check_mode: false
+      loop: "{{ __python_uv_versions }}"
+
+- name: Install the Pythons from the host's repositories
+  ansible.builtin.package:
+    name: "{{ __python_versions | selectattr('source', 'eq', 'repos') | map(attribute='package') | list }}"
+    state: present
+  when: __python_versions | selectattr('source', 'eq', 'repos') | list | length > 0
+
+- name: Install the Pythons pushed from the control node
+  when: __python_versions | selectattr('source', 'in', ['files', 'archive']) | list | length > 0
+  vars:
+    __python_pushed: "{{ __python_versions | selectattr('source', 'in', ['files', 'archive']) | list }}"
+  block:
+    - name: Check which are already there
+      ansible.builtin.stat:
+        path: "{{ item.interpreter }}"
+      register: __python_pushed_stat
+      loop: "{{ __python_pushed }}"
+      loop_control:
+        label: "{{ item.version }}"
+
+    - name: Create the download directory on the control node
+      delegate_to: localhost
+      become: false
+      run_once: true
+      vars:
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      ansible.builtin.file:
+        path: "{{ python_controller_cache | expanduser }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download the archives on the control node
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      ansible.builtin.get_url:
+        url: "{{ item.item.archive }}"
+        dest: "{{ python_controller_cache | expanduser }}/{{ item.item.archive | basename }}"
+        checksum: "{{ item.item.checksum or omit }}"
+        mode: "0644"
+      loop: "{{ __python_pushed_stat.results }}"
+      loop_control:
+        label: "{{ item.item.version }}"
+      when:
+        - not item.stat.exists
+        - item.item.source == 'archive'
+        - item.item.archive is match('^https?://')
+
+    - name: Push and install them
+      ansible.builtin.include_tasks: push.yml
+      loop: "{{ __python_pushed_stat.results | rejectattr('stat.exists') | map(attribute='item') | list }}"
+      loop_control:
+        loop_var: __python_version_entry
+        label: "{{ __python_version_entry.version }}"
+      vars:
+        __python_push_label: "python-{{ __python_version_entry.version }}"
+        __python_push_mode: "{{ __python_version_entry.source }}"
+        __python_push_interpreter: "{{ __python_version_entry.interpreter }}"
+        __python_push_family: "{{ __python_families[ansible_facts['os_family']] | default('unknown') }}"
+        __python_push_use_repos: "{{ __python_version_entry.use_repos }}"
+        __python_push_archive: "{{ __python_version_entry.archive | basename }}"
+        __python_push_dest: "{{ __python_version_entry.dest }}"
+        __python_push_files: >-
+          {{ (__python_version_entry.files | map('expanduser') | list) if __python_version_entry.source == 'files'
+             else [python_controller_cache | expanduser ~ '/' ~ (__python_version_entry.archive | basename)]
+                  if __python_version_entry.archive is match('^https?://')
+             else [__python_version_entry.archive | expanduser] }}
+        __python_push_command: "{{ lookup('ansible.builtin.template', 'push-install.sh.j2') }}"
+
+- name: Record each version's interpreter
+  ansible.builtin.set_fact:
+    python_interpreters: >-
+      {{ python_interpreters | default({})
+         | combine(dict(__python_uv_found.results | default([]) | map(attribute='item')
+                        | zip(__python_uv_found.results | default([]) | map(attribute='stdout') | map('trim'))))
+         | combine(dict(__python_versions | rejectattr('source', 'eq', 'uv') | map(attribute='version')
+                        | zip(__python_versions | rejectattr('source', 'eq', 'uv') | map(attribute='interpreter')))) }}

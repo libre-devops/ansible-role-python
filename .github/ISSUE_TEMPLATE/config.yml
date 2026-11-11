@@ -1,0 +1,6 @@
+---
+blank_issues_enabled: false
+contact_links:
+  - name: uv documentation
+    url: https://docs.astral.sh/uv/
+    about: uv's settings, Python downloads and mirrors.

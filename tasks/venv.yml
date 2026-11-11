@@ -1,0 +1,142 @@
+---
+# One entry of python_venvs. uv runs as the venv's owner (through runuser, or sudo where there is
+# no runuser), so every file in the venv belongs to them, without Ansible's become_user and its
+# temporary-file rules.
+
+- name: Fill in the venv's defaults
+  ansible.builtin.set_fact:
+    __python_venv_spec: >-
+      {{ {'python': '', 'packages': [], 'requirements': '', 'exact': false,
+          'owner': 'root', 'group': '', 'mode': '0755', 'state': 'present'}
+         | combine(__python_venv) }}
+
+- name: Check the venv entry
+  ansible.builtin.assert:
+    that:
+      - __python_venv_spec.path is defined
+      - __python_venv_spec.path is match('^/')
+      - __python_venv_spec.state in ['present', 'absent']
+      - not __python_venv_spec.exact | bool or __python_venv_spec.requirements | length > 0
+      - not __python_venv_spec.exact | bool or __python_venv_spec.packages | length == 0
+    fail_msg: >-
+      Each python_venvs entry needs an absolute path and a state of present or absent. exact needs a
+      requirements file and no packages, because it makes the venv hold only what that file lists.
+    quiet: true
+
+- name: Remove the venv
+  ansible.builtin.file:
+    path: "{{ __python_venv_spec.path }}"
+    state: absent
+  when: __python_venv_spec.state == 'absent'
+
+- name: Create and fill the venv
+  when: __python_venv_spec.state == 'present'
+  vars:
+    # uv's settings go through env on the command line, because sudo clears the environment.
+    __python_venv_env: >-
+      {{ __python_uv_environment | combine({'UV_CACHE_DIR': python_uv_cache_dir ~ '/' ~ __python_venv_spec.owner}) }}
+    __python_venv_uv: >-
+      {{ ([__python_switch_user.stdout_lines | first, '-u', __python_venv_spec.owner, '--']
+          if __python_venv_spec.owner != 'root' else [])
+         + ['env'] + (__python_venv_env | dict2items | map(attribute='key') | zip(__python_venv_env | dict2items | map(attribute='value'))
+                      | map('join', '=') | list)
+         + [__python_uv] }}
+    __python_venv_python: "{{ __python_venv_spec.path }}/bin/python"
+    # A version from python_versions becomes the interpreter installed for it.
+    __python_venv_interpreter: >-
+      {{ (python_interpreters | default({})).get(__python_venv_spec.python | string, __python_venv_spec.python | string) }}
+  block:
+    - name: Look up the venv's owner
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ __python_venv_spec.owner }}"
+        fail_key: false
+
+    - name: Check the venv's owner exists, and uv can run as them
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['getent_passwd'][__python_venv_spec.owner] is not none
+          - __python_venv_spec.owner == 'root' or __python_switch_user.stdout | default('') | length > 0
+        fail_msg: >-
+          {{ ('User ' ~ __python_venv_spec.owner ~ ' does not exist on ' ~ inventory_hostname ~ '. Create it before the venv at '
+              ~ __python_venv_spec.path ~ ', for example with ansible.builtin.user.')
+             if ansible_facts['getent_passwd'][__python_venv_spec.owner] is none
+             else (inventory_hostname ~ ' has neither runuser nor sudo, so uv cannot run as ' ~ __python_venv_spec.owner ~ '.') }}
+        quiet: true
+
+    - name: Create the owner's uv cache
+      ansible.builtin.file:
+        path: "{{ python_uv_cache_dir }}/{{ __python_venv_spec.owner }}"
+        state: directory
+        owner: "{{ __python_venv_spec.owner }}"
+        mode: "0700"
+
+    - name: Read the venv's settings
+      ansible.builtin.slurp:
+        src: "{{ __python_venv_spec.path }}/pyvenv.cfg"
+      register: __python_venv_cfg
+      failed_when: false
+
+    # A venv made with another major.minor Python than the one asked for is made again. Patch
+    # releases need nothing: uv points venvs at the minor version's directory.
+    - name: Decide whether to make the venv
+      ansible.builtin.set_fact:
+        __python_venv_exists: "{{ __python_venv_cfg.content is defined }}"
+        __python_venv_rebuild: >-
+          {{ __python_venv_cfg.content is defined
+             and __python_venv_spec.python | string is match('^[0-9]+(\.[0-9]+)*$')
+             and ((__python_venv_cfg.content | b64decode | regex_search('(?m)^version_info\s*=\s*(\S+)', '\1') or ['']) | first).split('.')[:2]
+                 != (__python_venv_spec.python | string).split('.')[:2] }}
+
+    # Without owner or mode, so an existing parent is left alone and a new one belongs to root,
+    # not to the venv's owner as it would if the next task made it.
+    - name: Create the venv's parent directory  # noqa: risky-file-permissions - an existing parent keeps its mode
+      ansible.builtin.file:
+        path: "{{ __python_venv_spec.path | dirname }}"
+        state: directory
+
+    - name: Create the venv's directory
+      ansible.builtin.file:
+        path: "{{ __python_venv_spec.path }}"
+        state: directory
+        owner: "{{ __python_venv_spec.owner }}"
+        group: "{{ __python_venv_spec.group or omit }}"
+        mode: "{{ __python_venv_spec.mode }}"
+
+    - name: Make the venv
+      ansible.builtin.command:
+        argv: >-
+          {{ __python_venv_uv + ['venv']
+             + (['--python', __python_venv_interpreter] if __python_venv_spec.python | string | length > 0 else [])
+             + (['--clear'] if __python_venv_rebuild | bool else [])
+             + [__python_venv_spec.path] }}
+      changed_when: true
+      when: not __python_venv_exists | bool or __python_venv_rebuild | bool
+
+    # uv prints "Installed ..." or "Uninstalled ..." when it changes the venv, and
+    # "Checked ..." when it has nothing to do.
+    - name: Install the packages
+      ansible.builtin.command:
+        argv: "{{ __python_venv_uv + ['pip', 'install', '--python', __python_venv_python] + __python_venv_spec.packages }}"
+      register: __python_venv_packages
+      changed_when: __python_venv_packages.stderr is search('(?m)^(Installed|Uninstalled) ')
+      when: __python_venv_spec.packages | length > 0
+
+    - name: Copy the requirements file
+      ansible.builtin.copy:
+        src: "{{ __python_venv_spec.requirements }}"
+        dest: "{{ __python_venv_spec.path }}/requirements.txt"
+        owner: "{{ __python_venv_spec.owner }}"
+        group: "{{ __python_venv_spec.group or omit }}"
+        mode: "0644"
+      when: __python_venv_spec.requirements | length > 0
+
+    - name: Install the requirements
+      ansible.builtin.command:
+        argv: >-
+          {{ __python_venv_uv + ['pip']
+             + (['sync'] if __python_venv_spec.exact | bool else ['install', '-r'])
+             + [__python_venv_spec.path ~ '/requirements.txt', '--python', __python_venv_python] }}
+      register: __python_venv_requirements
+      changed_when: __python_venv_requirements.stderr is search('(?m)^(Installed|Uninstalled) ')
+      when: __python_venv_spec.requirements | length > 0

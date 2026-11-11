@@ -1,0 +1,9 @@
+---
+# Install the role straight from GitHub, pinned to a release tag:
+#   ansible-galaxy install -r requirements.yml
+# It needs no collections.
+roles:
+  - name: libre_devops.python
+    src: https://github.com/libre-devops/ansible-role-python.git
+    scm: git
+    version: 1.0.0

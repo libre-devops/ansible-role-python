@@ -1,0 +1,26 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    # The interpreter each platform should end up with.
+    __verify_expected:
+      py-rhel8: /usr/bin/python3.12
+      py-sles15: /usr/bin/python3.11
+  tasks:
+    - name: Choose the interpreter again, as the role does
+      ansible.builtin.include_role:
+        name: libre_devops.python
+        tasks_from: bootstrap
+
+    - name: Check the interpreter
+      ansible.builtin.assert:
+        that:
+          - ansible_python_interpreter == __verify_expected[inventory_hostname] | default('/usr/bin/python3')
+          - ansible_facts['python']['executable'] == ansible_python_interpreter
+          - ansible_facts['python_version'] is version('3.9', '>=')
+        fail_msg: >-
+          Expected {{ __verify_expected[inventory_hostname] | default('/usr/bin/python3') }}, got
+          {{ ansible_python_interpreter }} (Python {{ ansible_facts['python_version'] }}).
+        success_msg: "{{ ansible_python_interpreter }}: Python {{ ansible_facts['python_version'] }}"

@@ -1,0 +1,192 @@
+---
+argument_specs:
+  main:
+    short_description: Give hosts a Python ansible-core can use, then uv, Python versions and venvs
+    description:
+      - Finds or installs a Python on each host that the running ansible-core can use, with raw and
+        script only, so it works on hosts with no Python or only an old one such as RHEL 8's 3.6, and
+        sets ansible_python_interpreter. The Python can come from the host's repositories (including
+        Satellite or a mirror), package files pushed from the control node, or a self-contained build.
+      - Installs uv, more Python versions (from uv, the host's repositories, pushed files or archives)
+        and virtual environments with their packages.
+      - Put it first in a play with gather_facts false.
+    author:
+      - Craig Thacker
+    options:
+      python_bootstrap:
+        description: Find or install a Python ansible-core can use, and set ansible_python_interpreter.
+        type: bool
+        default: true
+      python_bootstrap_min_version:
+        description: >-
+          The oldest Python to accept. auto works it out from the running ansible-core (3.9 from 2.20,
+          3.8 for 2.18 and 2.19, 3.7 for 2.17, 3.6 before).
+        type: str
+        default: auto
+      python_bootstrap_interpreter:
+        description: Use this interpreter, installing it from python_bootstrap_source if missing. Empty lets the role choose.
+        type: str
+        default: ""
+      python_bootstrap_source:
+        description: >-
+          Where to get a Python when the host has none new enough. repos is the host's own repositories,
+          files is package files pushed from the control node, archive is a self-contained build pushed from
+          the control node.
+        type: str
+        choices: [repos, files, archive]
+        default: repos
+      python_bootstrap_packages:
+        description: >-
+          For repos and files, the package and the interpreter it provides, by distribution family and
+          major version (such as rhel8), then by family (rhel, fedora, suse, debian).
+        type: dict
+        default:
+          rhel8: {package: python3.12, interpreter: /usr/bin/python3.12}
+          rhel: {package: python3, interpreter: /usr/bin/python3}
+          fedora: {package: python3, interpreter: /usr/bin/python3}
+          suse15: {package: python311, interpreter: /usr/bin/python3.11}
+          suse: {package: python3, interpreter: /usr/bin/python3}
+          debian: {package: python3, interpreter: /usr/bin/python3}
+      python_bootstrap_files:
+        description: For files, the package files on the control node, with every dependency the host lacks.
+        type: list
+        elements: path
+        default: []
+      python_bootstrap_files_use_repos:
+        description: For files, let the package manager fetch missing dependencies from the host's repositories.
+        type: bool
+        default: false
+      python_bootstrap_archive:
+        description: For archive, a python-build-standalone install_only .tar.gz on the control node, or an https URL.
+        type: str
+        default: ""
+      python_bootstrap_archive_checksum:
+        description: For archive from a URL, the checksum the control node checks, such as sha256:<hex>.
+        type: str
+        default: ""
+      python_bootstrap_archive_dir:
+        description: For archive, where it is unpacked. The interpreter is <dir>/bin/python3.
+        type: path
+        default: /opt/python/bootstrap
+      python_bootstrap_gather_facts:
+        description: Gather facts once the interpreter is set.
+        type: bool
+        default: true
+      python_uv_install:
+        description: Install uv even when python_versions and python_venvs do not need it.
+        type: bool
+        default: false
+      python_uv_source:
+        description: >-
+          download fetches the release archive on the control node and copies uv to the hosts. repos
+          installs python_uv_package from the host's repositories.
+        type: str
+        choices: [download, repos]
+        default: download
+      python_uv_package:
+        description: For repos, the package name.
+        type: str
+        default: uv
+      python_uv_version:
+        description: For download, the uv release.
+        type: str
+        default: "0.13.7"
+      python_uv_checksums:
+        description: For download, the SHA-256 of the release archive for each architecture.
+        type: dict
+        default:
+          x86_64: c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
+          aarch64: 71279f8d3c67241e807b9d8db872d1bf541579fb9f08b7d1eb1682196d1e57dc
+      python_uv_download_base_url:
+        description: >-
+          For download, the base of <base>/<version>/uv-<arch>-unknown-linux-gnu.tar.gz. A mirror of GitHub's
+          releases, or a file:// directory on the control node with the same layout.
+        type: str
+        default: https://github.com/astral-sh/uv/releases/download
+      python_controller_cache:
+        description: Where the control node keeps downloaded and packed files.
+        type: path
+        default: ~/.cache/libre_devops.python
+      python_uv_bin_dir:
+        description: For download, where uv and uvx go on each host.
+        type: path
+        default: /usr/local/bin
+      python_uv_cache_dir:
+        description: uv's cache on each host. Each venv owner gets a directory below it.
+        type: path
+        default: /var/cache/uv
+      python_uv_config:
+        description: Written to /etc/uv/uv.toml when not empty, which uv reads for every user on the host.
+        type: str
+        default: ""
+      python_versions:
+        description: >-
+          Python versions to install: version strings, or dicts with version, source (uv, repos, files or
+          archive), package, files, use_repos, archive, checksum, dest and interpreter.
+        type: list
+        elements: raw
+        default: []
+      python_versions_source:
+        description: The source for entries that do not name one.
+        type: str
+        choices: [uv, repos, files, archive]
+        default: uv
+      python_versions_dir:
+        description: For uv, where it installs Pythons.
+        type: path
+        default: /opt/uv/python
+      python_versions_link_dir:
+        description: For uv, also put pythonX.Y commands here. Empty for none.
+        type: str
+        default: ""
+      python_versions_package_names:
+        description: >-
+          For repos, the package name for a version by Ansible's os_family. {version} is the major and minor
+          version, {nodot} the same without the dot.
+        type: dict
+        default:
+          RedHat: python{version}
+          Suse: python{nodot}
+          Debian: python{version}
+      python_versions_archive_dir:
+        description: For archive, the default parent directory to unpack into.
+        type: path
+        default: /opt/python
+      python_venvs:
+        description: Virtual environments to manage.
+        type: list
+        elements: dict
+        default: []
+        options:
+          path:
+            description: Where it lives.
+            type: path
+            required: true
+          python:
+            description: >-
+              A version from python_versions, a version uv can find, or a path to an interpreter. Empty
+              leaves the choice to uv. A new major or minor version makes the venv again.
+            type: str
+          packages:
+            description: Requirement strings to install.
+            type: list
+            elements: str
+          requirements:
+            description: A requirements file on the control node, copied to <path>/requirements.txt.
+            type: path
+          exact:
+            description: Make the venv hold exactly what the requirements file lists.
+            type: bool
+          owner:
+            description: Who owns it and runs uv for it. The user must exist. Default root.
+            type: str
+          group:
+            description: Its group.
+            type: str
+          mode:
+            description: The mode of the venv's directory. Default 0755.
+            type: str
+          state:
+            description: present or absent.
+            type: str
+            choices: [present, absent]
