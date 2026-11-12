@@ -13,7 +13,7 @@ Gives each host a Python that the running ansible-core can use, even hosts with 
 
 [![CI](https://github.com/libre-devops/ansible-role-python/actions/workflows/ci.yml/badge.svg)](https://github.com/libre-devops/ansible-role-python/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/libre-devops/ansible-role-python?sort=semver&label=release)](https://github.com/libre-devops/ansible-role-python/releases/latest)
-[![Galaxy](https://img.shields.io/badge/galaxy-libre__devops.python-EE0000?logo=ansible&logoColor=white)](https://galaxy.ansible.com/ui/standalone/roles/libre_devops/python/)
+[![Galaxy](https://img.shields.io/badge/galaxy-libre__devops.python-EE0000?logo=ansible&logoColor=white)](https://galaxy.ansible.com/ui/standalone/roles/libre_devops/python/documentation/)
 [![Licence](https://img.shields.io/github/license/libre-devops/ansible-role-python)](./LICENSE)
 
 ---
