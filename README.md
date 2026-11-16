@@ -58,6 +58,7 @@ Each platform below runs in CI on every pull request, starting from the distribu
 
 | Distribution | Python before | After the bootstrap, from the host's repositories |
 |---|---|---|
+| RHEL 7 (UBI) | 2.7 only | `/opt/python/bootstrap/bin/python3`, from a pushed python-build-standalone archive (the `sources` scenario): RHEL 7's repositories have nothing current ansible-core can use |
 | RHEL 8 (UBI) | 3.6 (`/usr/libexec/platform-python`) only | `/usr/bin/python3.12` (`python3.12` from AppStream) |
 | RHEL 9 (UBI) | 3.9 | `/usr/bin/python3`, unchanged |
 | Rocky 10 | 3.12 | `/usr/bin/python3`, unchanged |
@@ -66,7 +67,7 @@ Each platform below runs in CI on every pull request, starting from the distribu
 | SLES 15 SP7 | 3.6 | `/usr/bin/python3.11` (`python311`) |
 | SLES 16 | None | `/usr/bin/python3` (`python3`) |
 
-The `sources` scenario also bootstraps RHEL 8 from pushed RPM files with its repositories switched off, and Debian 12 from a pushed python-build-standalone archive. Other distributions in the same families (Alma, Rocky, Oracle Linux, CentOS Stream, Fedora, openSUSE) are covered by `python_bootstrap_packages` and should work the same way.
+The `sources` scenario also bootstraps RHEL 8 from pushed RPM files with its repositories switched off, and Debian 12 and RHEL 7 from a pushed python-build-standalone archive. On RHEL 7 use `archive` for the bootstrap and for `python_versions`: its repositories have no Python new enough, and current ansible-core cannot drive yum (its `yum` module was removed in 2.17), so `repos` does not work there. python-build-standalone needs glibc 2.17, which is RHEL 7's. Other distributions in the same families (Alma, Rocky, Oracle Linux, CentOS Stream, Fedora, openSUSE) are covered by `python_bootstrap_packages` and should work the same way.
 
 ## Installation
 

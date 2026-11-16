@@ -4,6 +4,10 @@ Notable changes to this role. The format follows [Keep a Changelog](https://keep
 
 ## Unreleased
 
+### Added
+
+- RHEL 7: the bootstrap and `python_versions` install from a pushed python-build-standalone archive (RHEL 7 has only Python 2.7, and glibc 2.17, which those builds need). Tested in CI on UBI 7.
+
 ## 1.0.0 - 2026-11-12
 
 ### Added

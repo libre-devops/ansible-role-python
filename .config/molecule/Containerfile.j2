@@ -4,7 +4,12 @@
 # test images skip it (Defaults !pam_acct_mgmt).
 FROM {{ item.image }}
 
-{% if 'ubi' in item.image %}
+{% if 'ubi7' in item.image %}
+RUN yum -y install sudo \
+    && yum clean all \
+    && echo 'Defaults !pam_acct_mgmt' > /etc/sudoers.d/molecule \
+    && chmod 0440 /etc/sudoers.d/molecule
+{% elif 'ubi' in item.image %}
 RUN dnf -y install sudo \
     && dnf clean all \
     && echo 'Defaults !pam_acct_mgmt' > /etc/sudoers.d/molecule \

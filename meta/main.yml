@@ -5,7 +5,7 @@ galaxy_info:
   author: Craig Thacker
   company: Libre DevOps
   description: >-
-    Give hosts a Python that current ansible-core can use, even RHEL 8 and SLES 15, then
+    Give hosts a Python that current ansible-core can use, even RHEL 7, RHEL 8 and SLES 15, then
     install uv, Python versions and virtual environments
   license: MIT
   min_ansible_version: "2.16"
@@ -13,6 +13,7 @@ galaxy_info:
   platforms:
     - name: EL
       versions:
+        - "7"
         - "8"
         - "9"
         - "10"
